@@ -1,6 +1,216 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>k8s集群搭建[无需科学上网]</title>
+    <url>/2019/11/20/install-k8s/</url>
+    <content><![CDATA[<blockquote>
+<p><code>官网</code>：<a href="https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/#installing-kubeadm-kubelet-and-kubectl" target="_blank" rel="noopener">https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/#installing-kubeadm-kubelet-and-kubectl</a></p>
+<p><code>GitHub</code>：<a href="https://github.com/kubernetes/kubeadm" target="_blank" rel="noopener">https://github.com/kubernetes/kubeadm</a></p>
+<p><code>本教程中</code>：使用kubeadm搭建一个3台机器组成的k8s集群，1台master节点，2台worker节点</p>
+<p><code>配置要求</code>（官网）：</p>
+<ul>
+<li>One or more machines running one of:<ul>
+<li>Ubuntu 16.04+</li>
+<li>Debian 9+</li>
+<li>CentOS 7【本教程中使用】</li>
+<li>Red Hat Enterprise Linux (RHEL) 7</li>
+<li>Fedora 25+</li>
+<li>HypriotOS v1.0.1+</li>
+<li>Container Linux (tested with 1800.6.0)</li>
+</ul>
+</li>
+<li>2 GB or more of RAM per machine (any less will leave little room for your apps)</li>
+<li>2 CPUs or more</li>
+<li>Full network connectivity between all machines in the cluster (public or private network is fine)</li>
+<li>Unique hostname, MAC address, and product_uuid for every node. See here for more details.</li>
+<li>Certain ports are open on your machines. See here for more details.</li>
+<li>Swap disabled. You <strong>MUST</strong> disable swap in order for the kubelet to work properly.</li>
+</ul>
+</blockquote>
+<a id="more"></a>
+
+<h2 id="1-1-版本统一"><a href="#1-1-版本统一" class="headerlink" title="1.1 版本统一"></a>1.1 版本统一</h2><figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">Docker       18.09.0</span><br><span class="line">---</span><br><span class="line">kubeadm-1.14.0-0 </span><br><span class="line">kubelet-1.14.0-0 </span><br><span class="line">kubectl-1.14.0-0</span><br><span class="line">---</span><br><span class="line">k8s.gcr.io/kube-apiserver:v1.14.0</span><br><span class="line">k8s.gcr.io/kube-controller-manager:v1.14.0</span><br><span class="line">k8s.gcr.io/kube-scheduler:v1.14.0</span><br><span class="line">k8s.gcr.io/kube-proxy:v1.14.0</span><br><span class="line">k8s.gcr.io/pause:3.1</span><br><span class="line">k8s.gcr.io/etcd:3.3.10</span><br><span class="line">k8s.gcr.io/coredns:1.3.1</span><br><span class="line">---</span><br><span class="line">calico:v3.9</span><br></pre></td></tr></table></figure>
+
+<h2 id="1-2-准备3台CentOS"><a href="#1-2-准备3台CentOS" class="headerlink" title="1.2 准备3台CentOS"></a>1.2 准备3台CentOS</h2><p>大家根据自己的情况来准备centos7的虚拟机。</p>
+<p>要保证彼此之间能够ping通，也就是处于同一个网络中，虚拟机的配置要求上面也描述咯。</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">01 master节点：master-kubeadm-k8s</span><br><span class="line"></span><br><span class="line">02 worker01节点：worker01-kubeadm-k8s</span><br><span class="line"></span><br><span class="line">03 worker02节点：worker02-kubeadm-k8s</span><br></pre></td></tr></table></figure>
+
+<h2 id="1-3-更新并安装依赖"><a href="#1-3-更新并安装依赖" class="headerlink" title="1.3 更新并安装依赖"></a>1.3 更新并安装依赖</h2><blockquote>
+<p>3台机器都需要执行</p>
+</blockquote>
+<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">yum -y update</span><br><span class="line">yum install -y conntrack ipvsadm ipset jq sysstat curl iptables libseccomp</span><br></pre></td></tr></table></figure>
+
+<h2 id="1-4-安装Docker"><a href="#1-4-安装Docker" class="headerlink" title="1.4 安装Docker"></a>1.4 安装Docker</h2><blockquote>
+<p><strong>三台机器上都需要安装Docker，版本为18.09.0</strong></p>
+<p>01 若之前安装过docker，请先卸载之前安装的docker，否则忽略这步</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">sudo yum remove docker docker latest docker-latest-logrotate \</span><br><span class="line">    docker-logrotate docker-engine docker-client docker-client-latest docker-common</span><br></pre></td></tr></table></figure>
+
+<p>02 安装必要的依赖</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">sudo yum install -y yum-utils device-mapper-persistent-data lvm2</span><br></pre></td></tr></table></figure>
+
+<p>03 设置docker仓库</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">sudo yum-config-manager --add-repo http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo</span><br></pre></td></tr></table></figure>
+
+<p>04 需要设置一下阿里云镜像加速器</p>
+<p>[访问这个地址，使用自己的阿里云账号登录，查看菜单栏左下角，发现有一个镜像加速器:<a href="https://cr.console.aliyun.com/cn-hangzhou/instances/mirrors]" target="_blank" rel="noopener">https://cr.console.aliyun.com/cn-hangzhou/instances/mirrors]</a></p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">sudo mkdir -p /etc/docker</span><br><span class="line">sudo tee /etc/docker/daemon.json &lt;&lt;-&apos;EOF&apos;</span><br><span class="line">&#123;</span><br><span class="line">&quot;registry-mirrors&quot;: [&quot;这边替换成自己的实际地址&quot;]</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">sudo systemctl daemon-reload</span><br></pre></td></tr></table></figure>
+
+<p>05 更新yum缓存</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">sudo yum makecache fast</span><br></pre></td></tr></table></figure>
+
+<p>06 安装docker（一定要指定版本）</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">yum install -y docker-ce-18.09.0 docker-ce-cli-18.09.0 containerd.io</span><br></pre></td></tr></table></figure>
+
+<p>07 启动docker并设置为开机启动</p>
+<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">sudo systemctl start docker &amp;&amp; sudo systemctl enable docker</span><br></pre></td></tr></table></figure>
+</blockquote>
+<h2 id="1-5-修改hosts文件"><a href="#1-5-修改hosts文件" class="headerlink" title="1.5 修改hosts文件"></a>1.5 修改hosts文件</h2><blockquote>
+<p>(1)master</p>
+<p>01 设置master的hostname</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">sudo hostnamectl set-hostname m</span><br></pre></td></tr></table></figure>
+
+<p>02 修改master的hosts文件</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">vi /etc/hosts</span><br></pre></td></tr></table></figure>
+
+<p>03 增加以下内容</p>
+<p><strong>ip地址为三台CentOS的ip地址</strong></p>
+</blockquote>
+<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">192.168.1.160 m</span><br><span class="line">192.168.1.161 w1</span><br><span class="line">192.168.1.162 w2</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>(2)两个worker</p>
+<p>01 分别设置worker01和worker02的hostname</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">sudo hostnamectl set-hostname w1</span><br><span class="line">sudo hostnamectl set-hostname w2</span><br></pre></td></tr></table></figure>
+
+<p>02 分别修改worker01和worker02的hosts文件，并增加ip映射</p>
+</blockquote>
+<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">vi /etc/hosts</span><br><span class="line">192.168.1.160 m</span><br><span class="line">192.168.1.161 w1</span><br><span class="line">192.168.1.162 w2</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>(3)使用ping测试一下（三台机器都测试）</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">ping m</span><br><span class="line">ping w1</span><br><span class="line">ping w2</span><br></pre></td></tr></table></figure>
+</blockquote>
+<h2 id="1-6-系统基础前提配置"><a href="#1-6-系统基础前提配置" class="headerlink" title="1.6 系统基础前提配置"></a>1.6 系统基础前提配置</h2><p>（1）关闭防火墙</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">systemctl stop firewalld &amp;&amp; systemctl disable firewalld</span><br></pre></td></tr></table></figure>
+
+<p>（2）关闭selinux</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">setenforce 0</span><br><span class="line">sed -i &apos;s/^SELINUX=enforcing$/SELINUX=permissive/&apos; /etc/selinux/config</span><br></pre></td></tr></table></figure>
+
+<p>（3）关闭swap</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">swapoff -a</span><br><span class="line">sed -i &apos;/swap/s/^\(.*\)$/#\1/g&apos; /etc/fstab</span><br></pre></td></tr></table></figure>
+
+<p>（4）配置iptables的ACCEPT规则</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">iptables -F &amp;&amp; iptables -X &amp;&amp; iptables -F -t nat &amp;&amp; iptables -X -t nat &amp;&amp; iptables -P FORWARD ACCEPT</span><br></pre></td></tr></table></figure>
+
+<p>（5）设置系统参数</p>
+<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">cat &lt;&lt;EOF &gt;  /etc/sysctl.d/k8s.conf</span><br><span class="line">net.bridge.bridge-nf-call-ip6tables = 1</span><br><span class="line">net.bridge.bridge-nf-call-iptables = 1</span><br><span class="line">EOF</span><br><span class="line"></span><br><span class="line">sysctl --system</span><br></pre></td></tr></table></figure>
+
+<h2 id="1-7-Installing-kubeadm-kubelet-and-kubectl"><a href="#1-7-Installing-kubeadm-kubelet-and-kubectl" class="headerlink" title="1.7 Installing kubeadm, kubelet and kubectl"></a>1.7 Installing kubeadm, kubelet and kubectl</h2><blockquote>
+<p>(1)配置yum源</p>
+</blockquote>
+<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">cat &lt;&lt;EOF &gt; /etc/yum.repos.d/kubernetes.repo</span><br><span class="line">[kubernetes]</span><br><span class="line">name=Kubernetes</span><br><span class="line">baseurl=http://mirrors.aliyun.com/kubernetes/yum/repos/kubernetes-el7-x86_64</span><br><span class="line">enabled=1</span><br><span class="line">gpgcheck=0</span><br><span class="line">repo_gpgcheck=0</span><br><span class="line">gpgkey=http://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg</span><br><span class="line">       http://mirrors.aliyun.com/kubernetes/yum/doc/rpm-package-key.gpg</span><br><span class="line">EOF</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>(2)安装kubeadm&amp;kubelet&amp;kubectl</p>
+</blockquote>
+<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">yum install -y kubeadm-1.14.0-0 kubelet-1.14.0-0 kubectl-1.14.0-0</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>(3)docker和k8s设置同一个cgroup</p>
+<p>01编辑daemon.json文件</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">vi /etc/docker/daemon.json</span><br></pre></td></tr></table></figure>
+
+<p>02 增加以下内容（注意后面的格式和逗号）</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">&#123;</span><br><span class="line">  &quot;exec-opts&quot;: [&quot;native.cgroupdriver=systemd&quot;],</span><br><span class="line">  &quot;registry-mirrors&quot;: [&quot;这边替换成自己的实际地址&quot;]</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>03 重启docker，一定要执行</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">systemctl restart docker</span><br></pre></td></tr></table></figure>
+
+<p>04 kubelet，这边如果发现输出directory not exist，也说明是没问题的，大家继续往下进行即可</p>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">sed -i &quot;s/cgroup-driver=systemd/cgroup-driver=cgroupfs/g&quot; /etc/systemd/system/kubelet.service.d/10-kubeadm.conf</span><br></pre></td></tr></table></figure>
+
+<p>05 启动kubelet并设置为开机自启</p>
+</blockquote>
+<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line">systemctl enable kubelet &amp;&amp; systemctl start kubelet</span><br></pre></td></tr></table></figure>
+
+<h2 id="1-8-proxy-pause-scheduler等国内镜像"><a href="#1-8-proxy-pause-scheduler等国内镜像" class="headerlink" title="1.8 proxy/pause/scheduler等国内镜像"></a>1.8 proxy/pause/scheduler等国内镜像</h2><blockquote>
+<p>(1)查看kubeadm使用的镜像</p>
+<p>kubeadm config images list</p>
+<p>可以发现这里都是国外的镜像</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">k8s.gcr.io/kube-apiserver:v1.14.0</span><br><span class="line">k8s.gcr.io/kube-controller-manager:v1.14.0</span><br><span class="line">k8s.gcr.io/kube-scheduler:v1.14.0</span><br><span class="line">k8s.gcr.io/kube-proxy:v1.14.0</span><br><span class="line">k8s.gcr.io/pause:3.1</span><br><span class="line">k8s.gcr.io/etcd:3.3.10</span><br><span class="line">k8s.gcr.io/coredns:1.3.1</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>(2)解决国外镜像不能访问的问题</p>
+</blockquote>
+<ul>
+<li>创建kubeadm.sh脚本，用于拉取镜像/打tag/删除原有镜像</li>
+</ul>
+<figure class="highlight shell"><table><tr><td class="code"><pre><span class="line"><span class="meta">#</span><span class="bash">!/bin/bash</span></span><br><span class="line"></span><br><span class="line">set -e</span><br><span class="line"></span><br><span class="line">KUBE_VERSION=v1.14.0</span><br><span class="line">KUBE_PAUSE_VERSION=3.1</span><br><span class="line">ETCD_VERSION=3.3.10</span><br><span class="line">CORE_DNS_VERSION=1.3.1</span><br><span class="line"></span><br><span class="line">GCR_URL=k8s.gcr.io</span><br><span class="line">ALIYUN_URL=registry.cn-hangzhou.aliyuncs.com/google_containers</span><br><span class="line"></span><br><span class="line">images=(kube-proxy:$&#123;KUBE_VERSION&#125;</span><br><span class="line">kube-scheduler:$&#123;KUBE_VERSION&#125;</span><br><span class="line">kube-controller-manager:$&#123;KUBE_VERSION&#125;</span><br><span class="line">kube-apiserver:$&#123;KUBE_VERSION&#125;</span><br><span class="line">pause:$&#123;KUBE_PAUSE_VERSION&#125;</span><br><span class="line">etcd:$&#123;ETCD_VERSION&#125;</span><br><span class="line">coredns:$&#123;CORE_DNS_VERSION&#125;)</span><br><span class="line"></span><br><span class="line">for imageName in $&#123;images[@]&#125; ; do</span><br><span class="line">  docker pull $ALIYUN_URL/$imageName</span><br><span class="line">  docker tag  $ALIYUN_URL/$imageName $GCR_URL/$imageName</span><br><span class="line">  docker rmi $ALIYUN_URL/$imageName</span><br><span class="line">done</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>运行脚本和查看镜像</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line"># 运行脚本</span><br><span class="line">sh ./kubeadm.sh</span><br><span class="line"></span><br><span class="line"># 查看镜像</span><br><span class="line">docker images</span><br></pre></td></tr></table></figure>
+
+<h2 id="1-9-kube-init初始化master"><a href="#1-9-kube-init初始化master" class="headerlink" title="1.9 kube init初始化master"></a>1.9 kube init初始化master</h2><blockquote>
+<p>(1)kube init流程</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">01-进行一系列检查，以确定这台机器可以部署kubernetes</span><br><span class="line"></span><br><span class="line">02-生成kubernetes对外提供服务所需要的各种证书可对应目录</span><br><span class="line">/etc/kubernetes/pki/*</span><br><span class="line"></span><br><span class="line">03-为其他组件生成访问kube-ApiServer所需的配置文件</span><br><span class="line">    ls /etc/kubernetes/</span><br><span class="line">    admin.conf  controller-manager.conf  kubelet.conf  scheduler.conf</span><br><span class="line">    </span><br><span class="line">04-为 Master组件生成Pod配置文件。</span><br><span class="line">    ls /etc/kubernetes/manifests/*.yaml</span><br><span class="line">    kube-apiserver.yaml </span><br><span class="line">    kube-controller-manager.yaml</span><br><span class="line">    kube-scheduler.yaml</span><br><span class="line">    </span><br><span class="line">05-生成etcd的Pod YAML文件。</span><br><span class="line">    ls /etc/kubernetes/manifests/*.yaml</span><br><span class="line">    kube-apiserver.yaml </span><br><span class="line">    kube-controller-manager.yaml</span><br><span class="line">    kube-scheduler.yaml</span><br><span class="line">	etcd.yaml</span><br><span class="line">	</span><br><span class="line">06-一旦这些 YAML 文件出现在被 kubelet 监视的/etc/kubernetes/manifests/目录下，kubelet就会自动创建这些yaml文件定义的pod，即master组件的容器。master容器启动后，kubeadm会通过检查localhost：6443/healthz这个master组件的健康状态检查URL，等待master组件完全运行起来</span><br><span class="line"></span><br><span class="line">07-为集群生成一个bootstrap token</span><br><span class="line"></span><br><span class="line">08-将ca.crt等 Master节点的重要信息，通过ConfigMap的方式保存在etcd中，工后续部署node节点使用</span><br><span class="line"></span><br><span class="line">09-最后一步是安装默认插件，kubernetes默认kube-proxy和DNS两个插件是必须安装的</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>(2)初始化master节点</p>
+<p>官网：<a href="https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm/" target="_blank" rel="noopener">https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm/</a></p>
+<p><code>注意</code>：<strong>此操作是在主节点上进行</strong></p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line"># 本地有镜像</span><br><span class="line">kubeadm init --kubernetes-version=1.14.0 --apiserver-advertise-address=192.168.8.51 --pod-network-cidr=10.244.0.0/16</span><br><span class="line">【若要重新初始化集群状态：kubeadm reset，然后再进行上述操作】</span><br></pre></td></tr></table></figure>
+
+<p><strong>记得保存好最后kubeadm join的信息</strong></p>
+<blockquote>
+<p>(3)根据日志提示</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">mkdir -p $HOME/.kube</span><br><span class="line">sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config</span><br><span class="line">sudo chown $(id -u):$(id -g) $HOME/.kube/config</span><br></pre></td></tr></table></figure>
+
+<p><strong>此时kubectl cluster-info查看一下是否成功</strong></p>
+<blockquote>
+<p>(4)查看pod验证一下</p>
+<p>等待一会儿，同时可以发现像etc，controller，scheduler等组件都以pod的方式安装成功了</p>
+<p><code>注意</code>：coredns没有启动，需要安装网络插件</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">kubectl get pods -n kube-system</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>(5)健康检查</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">curl -k https://localhost:6443/healthz</span><br></pre></td></tr></table></figure>
+
+<h2 id="1-10-部署calico网络插件"><a href="#1-10-部署calico网络插件" class="headerlink" title="1.10 部署calico网络插件"></a>1.10 部署calico网络插件</h2><blockquote>
+<p>选择网络插件：<a href="https://kubernetes.io/docs/concepts/cluster-administration/addons/" target="_blank" rel="noopener">https://kubernetes.io/docs/concepts/cluster-administration/addons/</a></p>
+<p>calico网络插件：<a href="https://docs.projectcalico.org/v3.9/getting-started/kubernetes/" target="_blank" rel="noopener">https://docs.projectcalico.org/v3.9/getting-started/kubernetes/</a></p>
+</blockquote>
+<blockquote>
+<p><code>calico，同样在master节点上操作</code></p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line"># 在k8s中安装calico</span><br><span class="line">kubectl apply -f https://docs.projectcalico.org/v3.9/manifests/calico.yaml</span><br><span class="line"></span><br><span class="line"># 确认一下calico是否安装成功</span><br><span class="line">kubectl get pods --all-namespaces -w</span><br></pre></td></tr></table></figure>
+
+<h2 id="1-11-kube-join"><a href="#1-11-kube-join" class="headerlink" title="1.11 kube join"></a>1.11 kube join</h2><blockquote>
+<p><strong>记得保存初始化master节点的最后打印信息【注意这边大家要自己的，下面我的只是一个参考】</strong></p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">kubeadm join 192.168.0.51:6443 --token yu1ak0.2dcecvmpozsy8loh \</span><br><span class="line">    --discovery-token-ca-cert-hash sha256:5c4a69b3bb05b81b675db5559b0e4d7972f1d0a61195f217161522f464c307b0</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>(1)在woker01和worker02上执行上述命令</p>
+</blockquote>
+<blockquote>
+<p>(2)在master节点上检查集群信息</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="code"><pre><span class="line">kubectl get nodes</span><br><span class="line"></span><br><span class="line">NAME                   STATUS   ROLES    AGE     VERSION</span><br><span class="line">master-kubeadm-k8s     Ready    master   19m     v1.14.0</span><br><span class="line">worker01-kubeadm-k8s   Ready    &lt;none&gt;   3m6s    v1.14.0</span><br><span class="line">worker02-kubeadm-k8s   Ready    &lt;none&gt;   2m41s   v1.14.0</span><br></pre></td></tr></table></figure>
+]]></content>
+      <tags>
+        <tag>k8s</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>Hello World</title>
     <url>/2019/11/20/hello-world/</url>
     <content><![CDATA[<p>Welcome to <a href="https://hexo.io/" target="_blank" rel="noopener">Hexo</a>! This is your very first post. Check <a href="https://hexo.io/docs/" target="_blank" rel="noopener">documentation</a> for more info. If you get any problems when using Hexo, you can find the answer in <a href="https://hexo.io/docs/troubleshooting.html" target="_blank" rel="noopener">troubleshooting</a> or you can ask me on <a href="https://github.com/hexojs/hexo/issues" target="_blank" rel="noopener">GitHub</a>.</p>
